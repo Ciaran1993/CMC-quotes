@@ -105,7 +105,7 @@
 
   <!-- PER-POINT (hidden by default) -->
   <div class="card" id="ppCard" style="display:none">
-    <h2>Points <span class="sub">(tap to add — all priced at $165/hr, cleared to 30% net)</span></h2>
+    <h2>Points <span class="sub">(tap to add — rates editable live, benchmarked to 30% net)</span></h2>
     <div class="searchwrap">
       <input id="psearch" placeholder="Search points — GPO, switch, downlight, fan, data, smoke, A/C…" autocomplete="off" oninput="doPSearch(this.value)">
       <div id="presults"></div>
@@ -113,7 +113,7 @@
     <div class="chips" id="pchips"></div>
     <div style="height:8px"></div>
     <div id="ptLines"></div>
-    <div class="tip">Point prices include bundled materials + labour at your FY27 rate. Every point clears the 30% net floor — quote with confidence on-site.</div>
+    <div class="tip">Point prices include bundled materials + labour at your FY27 rate. Each rate loads at its benchmark (clears 30% net) — edit it to match the job, and the per-point net % turns amber the moment you drop below your floor. ↺ reset restores the benchmark.</div>
   </div>
 
   <div class="card" id="labourCard">
@@ -241,20 +241,45 @@ function doPSearch(qraw){
 }
 function pickP(i){
   const p=pLast[i]; if(!p) return;
-  pts.push({name:p[0],sec:p[1],ex:p[2],net:p[3],tmin:p[4],matcost:p[5],incl:p[6],qty:1});
+  pts.push({name:p[0],sec:p[1],ex:p[2],base:p[2],net:p[3],tmin:p[4],matcost:p[5],incl:p[6],qty:1});
   $('psearch').value=''; $('presults').classList.remove('on'); $('presults').innerHTML='';
   renderPts(); compute();
 }
+// Live net margin for a single point at its current (possibly edited) price
+function ptNet(p){
+  const s=S();
+  const wageCost=(s.wTrade/60)*p.tmin;
+  const oh=(s.oh/60)*p.tmin;
+  const profit=p.ex - p.matcost - wageCost - oh;
+  return p.ex>0 ? profit/p.ex*100 : 0;
+}
 function renderPts(){
-  $('ptLines').innerHTML = pts.map((p,i)=>`
+  const s=S();
+  $('ptLines').innerHTML = pts.map((p,i)=>{
+    const n=ptNet(p), low=n<s.target;
+    const edited=Math.abs(p.ex-p.base)>0.005;
+    return `
     <div class="ptline">
-      <div class="nm">${p.name}<small>$${p.ex.toFixed(2)} ea · ${p.net}% net${p.incl?' · '+p.incl.slice(0,42):''}</small></div>
-      <div><label>Qty</label><input type="number" step="1" value="${p.qty}" oninput="updP(${i},this.value)"></div>
+      <div class="nm">${p.name}<small>bench $${p.base.toFixed(2)} · <span id="pn${i}" class="${low?'ha':'hg'}">${n.toFixed(0)}% net</span>${edited?` · <a href="#" onclick="resetP(${i});return false" style="color:var(--accent);text-decoration:none">↺ reset</a>`:''}${p.incl?' · '+p.incl.slice(0,32):''}</small></div>
+      <div><label>Rate $</label><input type="number" step="1" value="${p.ex.toFixed(2)}" oninput="updP(${i},'ex',this.value)">
+        <div class="warn" id="pw${i}">${low?'⚠ under '+s.target+'% net':''}</div></div>
+      <div><label>Qty</label><input type="number" step="1" value="${p.qty}" oninput="updP(${i},'qty',this.value)"></div>
       <div><label>Line total</label><div class="selltot" id="pt${i}">$${(p.ex*p.qty).toFixed(2)}</div></div>
       <div><label>&nbsp;</label><button class="del" onclick="rmP(${i})">×</button></div>
-    </div>`).join('') || '<div class="tip">Search above to add points — every point is priced at $165/hr and clears 30% net.</div>';
+    </div>`;
+  }).join('') || '<div class="tip">Search above to add points. Every point loads at its benchmark rate (clears 30% net) — tap the Rate field to sharpen a price and watch the margin live.</div>';
 }
-function updP(i,v){ pts[i].qty=+v||0; const e=$('pt'+i); if(e) e.textContent='$'+(pts[i].ex*pts[i].qty).toFixed(2); compute(); }
+function updP(i,k,v){
+  pts[i][k]=+v||0;
+  const s=S(), p=pts[i], n=ptNet(p), low=n<s.target;
+  const pt=$('pt'+i), pn=$('pn'+i), pw=$('pw'+i);
+  if(pt) pt.textContent='$'+(p.ex*p.qty).toFixed(2);
+  if(pn){ pn.textContent=n.toFixed(0)+'% net'; pn.className=low?'ha':'hg'; }
+  if(pw) pw.textContent=low?'⚠ under '+s.target+'% net':'';
+  if(k==='ex') renderPts(); // refresh so reset link appears/disappears
+  compute();
+}
+function resetP(i){ pts[i].ex=pts[i].base; renderPts(); compute(); }
 function rmP(i){ pts.splice(i,1); renderPts(); compute(); }
 const money=n=>'$'+(Math.round(n)).toLocaleString('en-AU');
 const money2=n=>'$'+n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
